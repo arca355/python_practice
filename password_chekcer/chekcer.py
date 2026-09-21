@@ -27,5 +27,33 @@ def save_report(result,filename):
     with open(filename, 'w', encoding='utf-8') as file:
         for password, problems in result.items():
             file.write(f"Пароль: {password} Проблемы: {', '.join(problems)}\n")
+        for item in print_summary(result):
+            file.write(item)
+            
+def print_summary(passwords_and_problem):
+    result = []
+    yes,no = 0,0
+    result.append(f"Общее число паролей - {len(passwords_and_problem)}\n")
+    
+    problem_count = {}
+    
+    for item in passwords_and_problem.values():
+        if "Нет проблем" in item:
+            yes+= 1
+        else:
+            no += 1
+            for problem in item:
+                problem_count[problem] = problem_count.get(problem,0)+1
+                
+    result.append(f"\nОбщее число надежных паролей - {yes}\n")
+    result.append(f"Общее число НЕ надежных паролей - {no}\n")
+    
+    if problem_count:
+        most_common = max(problem_count, key=problem_count.get)
+        result.append(f"Самая частая проблемма - '{most_common}' ({problem_count[most_common]} раз)\n")
+        
+    return result
+    
 
-save_report(check_file('passwords.txt'),'report.txt')
+result = check_file('passwords.txt')
+save_report(result,'report.txt')
