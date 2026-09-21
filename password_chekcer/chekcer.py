@@ -8,8 +8,11 @@ def check_file(filename):
     return result
 
 def check_strenght(password):
+    common_password = ['123456','admin','password','admin123','qwerty','qwerty123']
     problems = []
     special_characters = "!@#$%^&*()-_=+[]{}|;:'\",.<>?/`~"
+    if password.lower() in common_password: 
+        problems.append("Не надеждный пароль как у всех")
     if len(password) < 8:
         problems.append("Пароль должен иметь более 8 символов. ")
     if not any(c.isupper() for c in password):
@@ -24,5 +27,5 @@ def save_report(result,filename):
     with open(filename, 'w', encoding='utf-8') as file:
         for password, problems in result.items():
             file.write(f"Пароль: {password} Проблемы: {', '.join(problems)}\n")
-            
+
 save_report(check_file('passwords.txt'),'report.txt')
