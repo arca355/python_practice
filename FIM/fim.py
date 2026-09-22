@@ -10,6 +10,7 @@ def hash_file(filepath):
     return sha256.hexdigest()
 
 def scan_folder(folder_path):
+    folder_path = os.path.abspath(folder_path)
     result = {}
     for file in (os.listdir(folder_path)):
         full_path = os.path.join(folder_path,file)
@@ -41,6 +42,55 @@ def save_baseline(snapshot, db_path='fim.db'):
     conn.commit()
     conn.close()    
 
-init_db()
-snapshot = scan_folder('./monitor_folder')
-save_baseline(snapshot)
+def get_baseline(db_path='fim.db'):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT filepath, hash FROM baseline")
+    rows = cursor.fetchall()
+    conn.close()
+    return dict(rows)
+
+def check_integrity(folder_path,db_path='fim.db'):
+    old_snapshot = get_baseline(db_path)
+    new_snapshot = scan_folder(folder_path)
+    
+    old_files = set(old_snapshot.keys())
+    new_files = set(new_snapshot.keys())
+
+    deleted = old_files - new_files
+    added = new_files - old_files
+    common = old_files & new_files
+    
+    modeified = {f for f in common if old_snapshot[f] != new_snapshot[f]}
+    unchanget = common - modeified
+    
+    return{
+        "deleted" : deleted,
+        "added" : added,
+        "modified" : modeified,
+        "unchanget" : unchanget,
+        "new_snapshot" : new_snapshot
+    }
+    
+def print_report(result):
+    print(f"Удлено файлов{len(result['deleted'])}")
+    for f in result['deleted']:
+        print(f" - {f}")
+    
+    print(f"Созданных файлов {len(result['added'])}")
+    for f in result['added']:
+        print(f" + {f}")    
+    
+    print(f"Изменено файлов {len(result["modified"])}")
+    for f in result["modified"]:
+        print(f" ~ {f}")
+    print(f"Без изменений {len(result["unchanget"])}")   
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MONITOR_FOLDER = os.path.join(BASE_DIR, "monitor_folder")
+
+
+result = check_integrity(MONITOR_FOLDER)
+print_report(result)
+
+save_baseline(result["new_snapshot"])
