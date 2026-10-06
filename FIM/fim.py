@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import hashlib
 import os
 import sqlite3
@@ -9,54 +10,73 @@ def init_db(db_path='fim.db'):
     cursor.execute("""
                    CREATE TABLE IF NOT EXISTS baseline(
                        filepath TEXT PRIMARY KEY,
-                       hash TEXT
+                       hash TEXT,
+                       mtime TEXT 
                    )
                    """)
     conn.commit()
     conn.close()
-    
-# Сохранение путей файлов и их хешей в базе
-def save_baseline(snapshot, db_path='fim.db'):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM baseline")
-    for filepath, file_hash in snapshot.items():
-        cursor.execute(
-            "INSERT INTO baseline (filepath, hash) VALUES (?, ?)",
-            (filepath, file_hash)
-            )
-    
-    conn.commit()
-    conn.close()    
 
 # Достать предыдущее значение хешей файлов и их названия из БД
 def get_baseline(db_path='fim.db'):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("SELECT filepath, hash FROM baseline")
+    cursor.execute("SELECT filepath, hash, mtime FROM baseline")
     rows = cursor.fetchall() #загрузка данных из SELECT
     conn.close()
-    return dict(rows)
+    result = {row[0]: (row[1], row[2]) for row in rows} #формирование словаря из полученных данных
+    return result
+
+# Сохранение путей файлов и их хешей в базе
+def save_baseline(snapshot, db_path='fim.db'):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM baseline")
+    for filepath, (file_hash, mtime) in snapshot.items():
+        cursor.execute(
+            "INSERT INTO baseline (filepath, hash, mtime) VALUES (?, ?, ?)",
+            (filepath, file_hash, mtime)
+        )
+    
+    conn.commit()
+    conn.close()    
 
 # Хеширование файла
 def hash_file(filepath):
     sha256 = hashlib.sha256()
-    with open(filepath, 'rb') as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            sha256.update(chunk)
+    try:
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
+    except Exception as e:
+        print(f"Ошибка при открытии файла {filepath}: {e}")
     return sha256.hexdigest()
 
 # Хеширование всех файлов в папке и возврат вместе с путями
 def scan_folder(folder_path):
+    try:
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Папка {folder_path} не существует.")
+    except FileNotFoundError as e:
+        print(e)
+        return {}
     folder_path = os.path.abspath(folder_path)
     result = {}
-    for file in (os.listdir(folder_path)):
-        full_path = os.path.join(folder_path,file)
-        result[full_path]=hash_file(full_path)
+    for root, dirs, files in os.walk(folder_path):
+        for filename in files:
+            full_path = os.path.join(root, filename)
+            mtime = datetime.fromtimestamp(os.path.getmtime(full_path)).astimezone()  # Получаем время последнего изменения файла и преобразуем в локальное время
+            formated_mtime = mtime.strftime("%d.%m.%Y %H:%M:%S")
+            result[full_path] = (hash_file(full_path), formated_mtime)
     return result
 
 # Основная функция сравнения "Предыдущего" состояния папки и "Нового" на момент сканирования
 def check_integrity(folder_path,db_path='fim.db'):
+    try:
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Папка {folder_path} не существует.")
+    except FileNotFoundError as e:
+            print(e)
     old_snapshot = get_baseline(db_path)
     new_snapshot = scan_folder(folder_path)
     
@@ -67,37 +87,40 @@ def check_integrity(folder_path,db_path='fim.db'):
     added = new_files - old_files
     common = old_files & new_files
     
-    modeified = {f for f in common if old_snapshot[f] != new_snapshot[f]}
-    unchanget = common - modeified
+    modified = {f for f in common if old_snapshot[f] != new_snapshot[f]}
+    unchanged = common - modified
     
     return{
         "deleted" : deleted,
         "added" : added,
-        "modified" : modeified,
-        "unchanget" : unchanget,
+        "modified" : modified,
+        "unchanged" : unchanged,
         "new_snapshot" : new_snapshot
     }
 
 # Вывод получившихся результатов
 def print_report(result):
-    print(f"Удлено файлов {len(result['deleted'])}")
+    print(f"Удалено файлов {len(result['deleted'])}")
     for f in result['deleted']:
         print(f" - {f}")
     
-    print(f"Созданных файлов {len(result['added'])}")
+    print(f"Создано файлов {len(result['added'])}")
     for f in result['added']:
         print(f" + {f}")    
     
-    print(f"Изменено файлов {len(result["modified"])}")
+    print(f"Изменено файлов {len(result['modified'])}")
     for f in result["modified"]:
         print(f" ~ {f}")
-    print(f"Без изменений {len(result["unchanget"])}")   
+    print(f"Без изменений {len(result['unchanged'])}")   
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__)) #Директория с текущим файлом "fim.py"
-MONITOR_FOLDER = os.path.join(BASE_DIR, "monitor_folder") #Соседняя с файлом папка для мониторинга
 
-result = check_integrity(MONITOR_FOLDER) #Сравнение состояния папки
-print_report(result)
+if __name__ == "__main__":
+    init_db() #Инициализация БД
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__)) #Директория с текущим файлом "fim.py"
+    MONITOR_FOLDER = os.path.join(BASE_DIR, "monitor_folder") #Соседняя с файлом папка для мониторинга
 
-save_baseline(result["new_snapshot"]) # Загрузка "Измененного" состояния в базу
+    result = check_integrity(MONITOR_FOLDER) #Сравнение состояния папки
+    print_report(result)
+
+    save_baseline(result["new_snapshot"]) # Загрузка "Измененного" состояния в базу
