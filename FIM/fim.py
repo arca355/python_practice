@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import hashlib
 import os
 import sqlite3
+import argparse
 
 # Инициализация БД
 def init_db(db_path='fim.db'):
@@ -113,14 +114,31 @@ def print_report(result):
         print(f" ~ {f}")
     print(f"Без изменений {len(result['unchanged'])}")   
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="File Integrity Monitoring")
+    group = parser.add_mutually_exclusive_group()
+    parser.add_argument("--path","-p", required=True, help="Путь к папке для мониторинга")
+    parser.add_argument("--db", default=os.path.join(BASEDIR, "fim.db"), help="Путь к базе данных (по умолчанию fim.db)")
+    group.add_argument("--init", action="store_true", help="Инициализация базы данных")
+    group.add_argument("--check", action="store_true", help="Проверка целостности файлов в указанной папке")
+    parser.add_argument("--update","-u", action="store_true", help="Обновление базы данных с текущим состоянием папки")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    init_db() #Инициализация БД
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__)) #Директория с текущим файлом "fim.py"
-    MONITOR_FOLDER = os.path.join(BASE_DIR, "monitor_folder") #Соседняя с файлом папка для мониторинга
+    BASEDIR = os.path.dirname(os.path.abspath(__file__))
 
-    result = check_integrity(MONITOR_FOLDER) #Сравнение состояния папки
-    print_report(result)
-    if result is not None:  
-        save_baseline(result["new_snapshot"]) # Загрузка "Измененного" состояния в базу
+    args = parse_args()
+    init_db(args.db)  # Инициализация базы данных при запуске скрипта
+    
+    if args.init:
+        save_baseline(scan_folder(args.path), args.db) # Сохранение текущего состояния папки в базу данных
+    elif args.check:
+        result = check_integrity(args.path, args.db)  # Сравнение состояния указанной папки
+        if args.update and result is not None:
+            save_baseline(result["new_snapshot"], args.db)
+        print_report(result)
+
+    
+
+
