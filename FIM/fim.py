@@ -54,12 +54,9 @@ def hash_file(filepath):
 
 # Хеширование всех файлов в папке и возврат вместе с путями
 def scan_folder(folder_path):
-    try:
-        if not os.path.exists(folder_path):
-            raise FileNotFoundError(f"Папка {folder_path} не существует.")
-    except FileNotFoundError as e:
-        print(e)
-        return {}
+    if not os.path.exists(folder_path):
+        print(f"Папка {folder_path} не существует.")
+        return None
     folder_path = os.path.abspath(folder_path)
     result = {}
     for root, dirs, files in os.walk(folder_path):
@@ -72,13 +69,12 @@ def scan_folder(folder_path):
 
 # Основная функция сравнения "Предыдущего" состояния папки и "Нового" на момент сканирования
 def check_integrity(folder_path,db_path='fim.db'):
-    try:
-        if not os.path.exists(folder_path):
-            raise FileNotFoundError(f"Папка {folder_path} не существует.")
-    except FileNotFoundError as e:
-            print(e)
+    
     old_snapshot = get_baseline(db_path)
     new_snapshot = scan_folder(folder_path)
+    
+    if new_snapshot is None:
+        return None
     
     old_files = set(old_snapshot.keys())
     new_files = set(new_snapshot.keys())
@@ -87,7 +83,7 @@ def check_integrity(folder_path,db_path='fim.db'):
     added = new_files - old_files
     common = old_files & new_files
     
-    modified = {f for f in common if old_snapshot[f] != new_snapshot[f]}
+    modified = {f for f in common if old_snapshot[f][0] != new_snapshot[f][0]}  # Проверка хеша для определения изменений
     unchanged = common - modified
     
     return{
@@ -100,6 +96,10 @@ def check_integrity(folder_path,db_path='fim.db'):
 
 # Вывод получившихся результатов
 def print_report(result):
+    if result is None:
+        print("Ошибка при сканировании папки.")
+        return
+
     print(f"Удалено файлов {len(result['deleted'])}")
     for f in result['deleted']:
         print(f" - {f}")
@@ -122,5 +122,5 @@ if __name__ == "__main__":
 
     result = check_integrity(MONITOR_FOLDER) #Сравнение состояния папки
     print_report(result)
-
-    save_baseline(result["new_snapshot"]) # Загрузка "Измененного" состояния в базу
+    if result is not None:  
+        save_baseline(result["new_snapshot"]) # Загрузка "Измененного" состояния в базу
