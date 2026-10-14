@@ -106,10 +106,7 @@ def check_integrity(folder_path,db_path='fim.db'):
     }
 
 # Вывод получившихся результатов
-def print_report(result):
-    if result is None:
-        print("Ошибка при сканировании папки.")
-        return
+def print_report(result): 
 
     print(f"Удалено файлов {len(result['deleted'])}")
     for f in result['deleted']:
@@ -142,15 +139,20 @@ def parse_args():
 if __name__ == "__main__":
 
     args = parse_args()
-    init_db(args.db)  # Инициализация базы данных при запуске скрипта
     if args.init:
         snapshot, unreadable_files = scan_folder(args.path)  # Сканирование указанной папки
         if snapshot is not None:
+            init_db(args.db)  # Инициализация базы данных при запуске скрипта
             save_baseline(snapshot, args.db) # Сохранение текущего состояния папки в базу данных
     elif args.check:
-        result = check_integrity(args.path, args.db)  # Сравнение состояния указанной папки
-        if args.update and result is not None:
-            save_baseline(result["new_snapshot"], args.db)
-        print_report(result)
+        if not os.path.exists(args.db):
+            print(f"База данных {args.db} не найдена. Пожалуйста, инициализируйте базу данных c помощью --init.")
+        else:
+            result = check_integrity(args.path, args.db)  # Сравнение состояния указанной папки
+            if result is not None:
+                print_report(result)  # Вывод отчета о состоянии файлов
+                if args.update:
+                    save_baseline(result["new_snapshot"], args.db)
+            
 
     

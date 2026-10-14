@@ -3,3 +3,4 @@ venv/
 .venv/
 report.txt
 *.pyc
+fim.db
