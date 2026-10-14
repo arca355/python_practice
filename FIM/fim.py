@@ -69,7 +69,7 @@ def scan_folder(folder_path):
         for filename in files:
             full_path = os.path.join(root, filename)
             mtime = datetime.fromtimestamp(os.path.getmtime(full_path)).astimezone()  # Получаем время последнего изменения файла и преобразуем в локальное время
-            formated_mtime = mtime.strftime("%d.%m.%Y %H:%M:%S")
+            formated_mtime = mtime.strftime("%d.%m.%y %H:%M:%S")
             file_hash = hash_file(full_path)
             if file_hash is not None:# Проверяем, что хеш не None
                 result[full_path] = (file_hash, formated_mtime)
@@ -102,7 +102,8 @@ def check_integrity(folder_path,db_path='fim.db'):
         "modified" : modified,
         "unchanged" : unchanged,
         "new_snapshot" : new_snapshot,
-        "unreadable_files" : unreadable_files
+        "unreadable_files" : unreadable_files,
+        "old_snapshot" : old_snapshot
     }
 
 # Вывод получившихся результатов
@@ -110,15 +111,15 @@ def print_report(result):
 
     print(f"Удалено файлов {len(result['deleted'])}")
     for f in result['deleted']:
-        print(f" - {f}")  # Выводим путь и время последнего изменения удаленных файлов
+        print(f" - {f}  {result['old_snapshot'][f][1]}")  # Выводим путь и время последнего изменения удаленных файлов
     
     print(f"Создано файлов {len(result['added'])}")
     for f in result['added']:
-        print(f" + {f}")    
+        print(f" + {f}  {result['new_snapshot'][f][1]}")  # Выводим путь и время последнего изменения созданных файлов
     
     print(f"Изменено файлов {len(result['modified'])}")
     for f in result["modified"]:
-        print(f" ~ {f}")    
+        print(f" ~ {f} ( было {result['old_snapshot'][f][1]} -> стало {result['new_snapshot'][f][1]})")  # Выводим путь и время последнего изменения измененных файлов
     print(f"Без изменений {len(result['unchanged'])}")   
     print(f"Нет доступа на чтение {len(result['unreadable_files'])}")   
     
