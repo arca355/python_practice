@@ -4,6 +4,9 @@ import os
 import sqlite3
 import argparse
 
+BASEDIR = os.path.dirname(os.path.abspath(__file__))
+
+
 # Инициализация БД
 def init_db(db_path='fim.db'):
     conn = sqlite3.connect(db_path)
@@ -49,30 +52,36 @@ def hash_file(filepath):
         with open(filepath, 'rb') as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256.update(chunk)
-    except Exception as e:
+    except OSError as e:
         print(f"Ошибка при открытии файла {filepath}: {e}")
+        return None
     return sha256.hexdigest()
 
 # Хеширование всех файлов в папке и возврат вместе с путями
 def scan_folder(folder_path):
     if not os.path.exists(folder_path):
         print(f"Папка {folder_path} не существует.")
-        return None
+        return None, []
     folder_path = os.path.abspath(folder_path)
     result = {}
+    unreadable_files = []
     for root, dirs, files in os.walk(folder_path):
         for filename in files:
             full_path = os.path.join(root, filename)
             mtime = datetime.fromtimestamp(os.path.getmtime(full_path)).astimezone()  # Получаем время последнего изменения файла и преобразуем в локальное время
             formated_mtime = mtime.strftime("%d.%m.%Y %H:%M:%S")
-            result[full_path] = (hash_file(full_path), formated_mtime)
-    return result
+            file_hash = hash_file(full_path)
+            if file_hash is not None:# Проверяем, что хеш не None
+                result[full_path] = (file_hash, formated_mtime)
+            else:
+                unreadable_files.append(full_path)
+    return result, unreadable_files
 
 # Основная функция сравнения "Предыдущего" состояния папки и "Нового" на момент сканирования
 def check_integrity(folder_path,db_path='fim.db'):
     
     old_snapshot = get_baseline(db_path)
-    new_snapshot = scan_folder(folder_path)
+    new_snapshot, unreadable_files = scan_folder(folder_path)
     
     if new_snapshot is None:
         return None
@@ -80,7 +89,7 @@ def check_integrity(folder_path,db_path='fim.db'):
     old_files = set(old_snapshot.keys())
     new_files = set(new_snapshot.keys())
 
-    deleted = old_files - new_files
+    deleted = (old_files - new_files) - set(unreadable_files)  # Исключаем файлы, к которым нет доступа на чтение
     added = new_files - old_files
     common = old_files & new_files
     
@@ -92,7 +101,8 @@ def check_integrity(folder_path,db_path='fim.db'):
         "added" : added,
         "modified" : modified,
         "unchanged" : unchanged,
-        "new_snapshot" : new_snapshot
+        "new_snapshot" : new_snapshot,
+        "unreadable_files" : unreadable_files
     }
 
 # Вывод получившихся результатов
@@ -103,7 +113,7 @@ def print_report(result):
 
     print(f"Удалено файлов {len(result['deleted'])}")
     for f in result['deleted']:
-        print(f" - {f}")
+        print(f" - {f}")  # Выводим путь и время последнего изменения удаленных файлов
     
     print(f"Создано файлов {len(result['added'])}")
     for f in result['added']:
@@ -111,28 +121,32 @@ def print_report(result):
     
     print(f"Изменено файлов {len(result['modified'])}")
     for f in result["modified"]:
-        print(f" ~ {f}")
+        print(f" ~ {f}")    
     print(f"Без изменений {len(result['unchanged'])}")   
-
+    print(f"Нет доступа на чтение {len(result['unreadable_files'])}")   
+    
 def parse_args():
     parser = argparse.ArgumentParser(description="File Integrity Monitoring")
-    group = parser.add_mutually_exclusive_group()
+    group = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("--path","-p", required=True, help="Путь к папке для мониторинга")
     parser.add_argument("--db", default=os.path.join(BASEDIR, "fim.db"), help="Путь к базе данных (по умолчанию fim.db)")
     group.add_argument("--init", action="store_true", help="Инициализация базы данных")
     group.add_argument("--check", action="store_true", help="Проверка целостности файлов в указанной папке")
     parser.add_argument("--update","-u", action="store_true", help="Обновление базы данных с текущим состоянием папки")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.update and not args.check:
+        parser.error("--update может использоваться только с --check")
+    return args
 
 
 if __name__ == "__main__":
-    BASEDIR = os.path.dirname(os.path.abspath(__file__))
 
     args = parse_args()
     init_db(args.db)  # Инициализация базы данных при запуске скрипта
-    
     if args.init:
-        save_baseline(scan_folder(args.path), args.db) # Сохранение текущего состояния папки в базу данных
+        snapshot, unreadable_files = scan_folder(args.path)  # Сканирование указанной папки
+        if snapshot is not None:
+            save_baseline(snapshot, args.db) # Сохранение текущего состояния папки в базу данных
     elif args.check:
         result = check_integrity(args.path, args.db)  # Сравнение состояния указанной папки
         if args.update and result is not None:
@@ -140,5 +154,3 @@ if __name__ == "__main__":
         print_report(result)
 
     
-
-
